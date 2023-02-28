@@ -1,0 +1,546 @@
+/* Select para generar TDH_FARELL$Ventas Albaranes 3 años.sql */
+-- Generar tabla de hechos de ventas albaranes 3 años. Actaul y 2 anteriores
+-- Elimina registros de num meses anteriores mes actual definidos en configuracion
+-- Modificaciones 13/11/2018
+--		Añadir dato de horas en fracciones de 15 minutos
+--		Añadir Metodo pago y F. Pago
+--		Añadir clasificación ABC para tratar, de registro clasificacion grupo 01
+-- Modificacion 14/11/2018
+--		Añadir campo Tipo Venta
+--		Control de Null en F Pago-0 y Met Pago-CO
+-- Modificacion 20/12/2018 AG-02
+--		Añadir sub select para sacar proveedor de compra de productos en hist recepciones-destinos compra
+
+use FARELL601
+
+declare @fec_ini as datetime
+declare @fec_fin as datetime
+declare @meses as smallint
+declare @grupo_clasif as nvarchar(20)
+
+-- **Registro de clasificacion 01, para almacenes 4 y 5
+set @grupo_clasif = '01'
+
+-- leer de configuracion power BI los meses a eliminar
+set @meses =  (select Meses_borrado_registros
+				from TIC_Farell.dbo.[Configuracion PowerBI])
+
+-- Si no está definido el parametro resta 0 meses
+if @meses is null set @meses = 0
+
+-- Fecha fin dia previo a feca actual
+set @fec_fin = DATEDIFF("d",1,getdate())
+-- Fecha inicio primer dia de mes de num meses atras definidos en configuracion
+set @fec_ini = dateadd(dd,-(day(DATEADD(MM,@meses,@fec_fin))-1),DATEADD(MM,@meses,@fec_fin))
+
+-- Eliminar datos TDH desde fecha inicio
+delete from [TIC_Farell].[dbo].[TDH_FARELL$Ventas Albaranes 3 años]
+where [Fecha Registro] >= @fec_ini
+
+
+-- Proceso de generar datos e insetar en TDH
+INSERT INTO [TIC_Farell].[dbo].[TDH_FARELL$Ventas Albaranes 3 años]
+           ([Tipo Documento]
+           ,[N. Documento]
+           ,[Num Linea]
+           ,[Id Cabecera Docum]
+           ,[Fecha Registro]
+           ,[Almacen Envio]
+           ,[Cliente Venta]
+           ,[Dir Envio Obra]
+           ,[Nombre Envio Obra]
+           ,[Vendedor Asignado Documento]
+           ,[Nombre Seccion Vend Asignado Documento]
+           ,[Nombre Departamento Vend Asignado Documento]
+           ,[Nombre Area Vend Asignado Documento]
+           ,[Vendedor Venta]
+           ,[Nombre Seccion Vendedor Venta]
+           ,[Nombre Departamento Vendedor Venta]
+           ,[Nombre Area Vendedor Venta]
+           ,[Pedido-Devolucion]
+           ,[Articulo]
+           ,[Descripcion Articulo]
+           ,[Generico]
+           ,[Proveedor]
+           ,[Importe Venta]
+           ,[Cantidad]
+           ,[UPC]
+           ,[Importe Coste UPC]
+           ,[Contado-Credito]
+           ,[ID Usuario]
+           ,[Origen Venta]
+           ,[Cantidad Recepcion Destino]
+           ,[En Destino]
+           ,[Motivo Devolucion]
+           ,[Familia]
+           ,[Sub-Familia]
+           ,[Ud Negocio Articulo]
+           ,[Tipo Tarifa]
+           ,[Hora Albaran]
+           ,[Hora Fraccion Cuartos]
+           ,[Es TPV]
+           ,[Precio]
+           ,[%Dto]
+           ,[Agr. Vend. Asignado Docum]
+           ,[Agr. Nombre Seccion Vend. Asignado Docum]
+           ,[Agr. Nombre Depto Vend. Asignado Docum]
+           ,[Agr. Nombre Area Vend. Asignado Documento]
+           ,[Agr. Vend. Venta]
+           ,[Agr. Nombre Seccion Vend. Venta]
+           ,[Agr. Nombre Depto Vend. Venta]
+           ,[Agr. Nombre Area Vend. Venta]
+           ,[Vendedor Asignado Ficha]
+           ,[Nombre Seccion Vend. Asignado Ficha]
+           ,[Nombre Depto Vend. Asignado Ficha]
+           ,[Nombre Area Vend. Asignado Ficha]
+           ,[Codigo Forma de Pago]
+           ,[Codigo Metodo de Pago]
+           ,[Clasificacion ABC Articulo]
+           ,[Tipo Venta])
+-- Select datos 
+select docvta.[Tipo Documento], docvta.[Document No_] as "N. Documento", convert(float,docvta.[Document Line No_]) as "Num Linea", docvta.[Id Cabecera Docum], 
+dbo.fmt_fec(docvta.[Posting Date]) as "Fecha Registro",
+docvta.[Location Code] as "Almacen Envio",
+-- datos cliente y dir envio-obra
+docvta.[Sell-to Customer No_] as "Cliente Venta",
+docvta.[Dir Env_Obra], dbo.fmt_descod(docvta.[Dir Env_Obra],docvta.[Nombre Env_Obra]) as "Nombre Envio Obra", 
+-- datos Vendedores
+-- Vendedor asignado documento
+isnull(docvta.[Vendedor Asignado Docum],0) as "Vendedor Asignado Docum", 
+isnull(spact.Nombre_Dept,'Sin Asignar') as "Nombre Seccion Vend Asig Docum",
+isnull(spact.Nombre_Ctr,'Sin Asignar') as "Nombre Depto Vend Asig Docum",
+ISNULL(spact.Nombre_Area,'') as "Nombre Area Vend Asig Docum",
+-- Vendedor venta
+isnull(docvta.[Vendedor Venta],0) as "Vendedor Venta", 
+isnull(spct.Nombre_Dept,'Sin Asignar') as "Nombre Seccion Vend Venta",
+isnull(spct.Nombre_Ctr,'Sin Asignar') as "Nombre Depto Vend Venta",
+ISNULL(spct.Nombre_Area,'') as "Nombre Area Vend Venta",
+isnull(docvta.[Pedido-Devolucion],'') as "Pedido-Devolucion",
+-- Articulo
+docvta.[Item No_] as "Articulo",dbo.fmt_descod(docvta.[Item No_],isnull(docvta.[Desc Articulo],'')) as "Descripcion Articulo",
+docvta.Generico as "Generico",
+isnull(docvta.Proveedor,'') as "Proveedor",
+convert(float,isnull(docvta.[Importe Venta],0)) as "Importe Venta",convert(float,isnull(docvta.Cantidad,0)) as "Cantidad",
+isnull(docvta.[UPC Movimiento],0) as "UPC",
+isnull(docvta.[Importe Coste UPC],0) as "Importe Coste UPC",
+case docvta.[Genera Mov Caja]
+	when 0 then 'Credito'
+	else 'Contado'
+end as "Contado-Credito",
+isnull(docvta.[ID Usuario],'') as "ID Usuario",
+Case docvta.[Origen Venta Pedido]
+		when 0 Then 'S/C'
+		when 1 Then 'Teléfono'
+		when 2 Then 'Comercial'
+		when 3 Then 'Mostrador'
+		when 4 Then 'TPV'
+		when 5 Then 'Correo.e'
+		when 6 Then 'Visita'
+		when 7 Then 'Oferta'
+		when 8 Then 'Empleado'
+		else 'No Definido'
+end as "Origen Venta",
+CONVERT(float,isnull(docvta.[Cantidad Recep Destino],0)) as "Cantidad Recep Destino",
+docvta.[En Destino],
+isnull(rtr.Code,'') as "Motivo Devolucion",
+docvta.Familia as "Familia",docvta.SubFamilia as "Sub-Familia",
+docvta.[Ud Negocio] as "Ud Negocio Articulo",
+docvta.[Tipo Tarifa] as "Tipo Tarifa",
+docvta.[Hora Albaran],
+dbo.Calc_Hora_Fraccion(docvta.[Hora Albaran],'c') as "Hora Fraccion Cuartos",
+docvta.[Es TPV],
+CONVERT(float,isnull(docvta.Precio,0)) as "Precio",CONVERT(float,isnull(docvta.[% Dto],0)) as "%Dto",
+-- AG-11 Datos Vendedores agregados
+-- Vend Agregado asignado documento
+isnull(spaga.Code,'') as "Agr. Vend Asignado Docum",
+isnull(spcta.Nombre_Dept,'Sin Asignar') as "Agr. Nombre Seccion V. Asignado",
+isnull(spcta.Nombre_Ctr,'Sin Asignar') as "Agr. Nombre Depto V. Asignado",
+ISNULL(spcta.Nombre_Area,'') as "Agr. Nombre Area V. Asignado"
+-- Vend Agregado venta
+,isnull(spagv.Code,'') as "Agr. Vend Venta",
+isnull(spctv.Nombre_Dept,'Sin Asignar') as "Agr. Nombre Seccion V. Venta",
+isnull(spctv.Nombre_Ctr,'Sin Asignar') as "Agr. Nombre Depto V. Venta",
+ISNULL(spctv.Nombre_Area,'') as "Agr. Nombre Area V. Venta"
+-- AG-12 Vendedor asignado Ficha
+,docvta.[Vendedor Asignado Ficha], 
+isnull(spfict.Nombre_Dept,'Sin Asignar') as "Nombre Seccion Vend Asig Ficha",
+isnull(spfict.Nombre_Ctr,'Sin Asignar') as "Nombre Depto Vend Asig Ficha",
+ISNULL(spfict.Nombre_Area,'') as "Nombre Area Vend Asig Ficha",
+-- Forma Pago y Metodo pago
+isnull(docvta.[Forma de Pago],'0') as "Forma de Pago", isnull(docvta.[Metodo de Pago],'CO') as "Metodo de Pago",
+isnull(cr.Classification,docvta.[ABC Ficha Articulo]) as "Clasificacion ABC Articulo",
+-- Tipo Venta
+case
+	when docvta.[Vendedor Venta] = docvta.[Vendedor Asignado Docum] then 'Directa'
+	else 'Indirecta'
+end as "Tipo Venta"
+
+from (select docvtd.*, 
+	cova.Vendedor_Asig as "Vendedor Asignado Ficha"
+	-- docvtd
+	from (select docvt1.*, 
+		-- Direccion de Envio-Obra arreglada. Solo salen las 2-obra y 4-F/S, resto ''
+		case 
+			-- Tipo direccion 2-obra, 4 Fact sep.
+			when staf.[Address type] = 2 or staf.[Address type] = 4 then staf.Code
+			else ''		-- Campo vacio
+		end as "Dir Env_Obra"
+
+		--	Docvt1 anterior docvta
+		from (select ilev.*,
+			-- Tipo documento , Num documentos Alb/r ev y Fra -Abo datos movs
+			case
+				when slsla.No_ is not null then 'Albaran'
+				else 'Devolucion'
+			end as "Tipo Documento",
+			case
+				when slsla.No_ is not null then slsla.[Order No_]
+				else rtrld.[Return Order No_]
+			end as "Pedido-Devolucion",
+			case
+				when slsla.No_ is not null then slsla.[Order Line No_]
+				else rtrld.[Return Order Line No_]
+			end as "Linea Pedido-Devolucion",
+			vef.[Document No_] as "Factura", vef.[Document Line No_] as "Linea factura",
+			case
+				when docag.[N Docum] is null then 0
+				else 1
+			end as "Id Cabecera Docum",
+			case
+				when slsla.No_ is not null then slsha.[Origen Venta Pedido]
+				else 0
+			end as "Origen Venta Pedido",	
+			case
+				when slsla.No_ is not null then slsha.[Genera Mov_ caja]
+				else rtrhd.[Genera Mov_ caja]
+			end as "Genera Mov Caja",
+			case
+				when slsla.No_ is not null then slsha.[User ID]
+				else rtrhd.[User ID]
+			end as "ID Usuario",
+			case
+				when slsla.No_ is not null then slsla.[Return Reason Code]
+				else rtrld.[Return Reason Code]
+			end as "Motivo Devolucion",
+			-- Datos Vendedor Asig y Venta
+			case
+				when slsha.No_ is not null then slsha.[Salesperson Code]
+				else rtrhd.[Salesperson Code]
+			end as "Vendedor Asignado Docum",
+			case
+				when slsha.No_ is not null then slsha.[Internal salesperson code]
+				else rtrhd.[Internal salesperson code]
+			end as "Vendedor Venta",
+			-- Datos Cliente y direcciones 
+			-- dir envio-obra
+			case
+				when slsha.No_ is not null then slsha.[Ship-to Code] -- Albaran
+				else
+					case
+						when rtrhd.No_ is not null then rtrhd.[Ship-to Code]	-- Rec dev
+						else ilev.[Ship-to Code (Building Work)]
+					end
+			end as "Dir Env_Obra1",
+			case
+				when slsha.No_ is not null then
+					case
+						when slsha.[Ship-to Code] = ''
+							then '' 
+							else slsha.[Ship-to Name] -- Albaran
+					end
+				else
+					case
+						when rtrhd.No_ is not null then
+							case 
+								when rtrhd.[Ship-to Code] = ''
+									then ''
+									else rtrhd.[Ship-to Name]	-- Rec dev
+							end
+						else ''
+					end
+			end as "Nombre Env_Obra",
+			-- Datos Articulo ----	
+			case
+				when slsla.No_ is not null then slsla.[Description]
+				else rtrld.[Description]
+			end as "Desc Articulo",
+			case itd.General 
+				when 1 Then 'Generico' 
+				else 'No generico' 
+			end as Generico,
+			-- AG-02 sacar proveedor recep destino o ficha articulo
+			case 
+				when prdes.[Proveedor compra] is null then 
+					case
+						when pdt.[Proveedor venta] is null then itd.[Vendor No_]
+						else pdt.[Proveedor venta]	-- prov pedido compra en destinos pedidos
+					end
+				else prdes.[Proveedor compra]	-- Prov alb compra de hist rec
+			end as "Proveedor",
+			--itd.[Vendor No_] as "Proveedor",
+			itd.[Item Category Code] as "Familia",itd.[Product Group Code] as "SubFamilia",
+			dbo.fmt_udnegocio_item(itd.[Businees Unit]) as "Ud Negocio",
+			dbo.fmt_tipotarifa_item(itd.[Tipo tarifa]) as "Tipo Tarifa",
+			case
+				when slsha.No_ is not null then dbo.fmt_hora(slsha.[Hora emision documento])
+				else dbo.fmt_hora(rtrhd.[Hora emision documento])
+			end as "Hora Albaran",
+			case
+				when slsha.No_ is not null then 
+					case slsha.[Es TPV]
+						when 1 then 'Si'
+						else 'No'
+					end
+				else 
+					case rtrhd.[Es TPV]
+						when 1 then 'Si'
+						else 'No'
+					end 
+			end as "Es TPV",
+			-- cantidad
+			convert(float,case	
+				when vef.[Document No_] is not null then (vef.[Invoiced Quantity] * -1)	-- cantidad de VE
+				else 
+					case
+						-- Tratamos cantidad de linea albaran
+						when slsla.[Document No_] is not null then slsla.Quantity
+						-- implica qeu no hay albaran y debe ser rec dev
+						else (rtrld.Quantity * -1)
+					end 
+			end) as "Cantidad",
+			-- precio
+			convert(float,case	
+				when vef.[Document No_] is not null then 
+					case
+						when vef.[Document Type] = 2 then slil.[Unit Price]	-- Precio lin fra
+						else slcrml.[Unit Price]	-- precio lin abono
+					end
+				else	-- No esta facturado
+				case
+					-- Tratamos precio de linea pedido
+					when slsla.[Document No_] is not null then sla.[Unit Price]
+					-- implica qeu no hay albaran y debe ser rec dev
+					else rtrld.[Unit Price]
+				end 
+			end) as "Precio",
+			-- % Dto linea
+			convert(float,case
+				when vef.[Document No_] is not null then 
+					case
+						when vef.[Document Type] = 2 then slil.[Line Discount %]	-- Precio lin fra
+						else slcrml.[Line Discount %]	-- precio lin abono
+					end
+				else	-- No esta facturado
+				case
+					-- Tratamos precio de linea pedido
+					when slsla.[Document No_] is not null then sla.[Line Discount %]
+					-- implica qeu no hay albaran y debe ser rec dev
+					else rtrld.[Line Discount %]
+				end 
+			end) as "% Dto",
+			-- Importe
+			convert(float,case
+				when vef.[Document No_] is not null then 	-- importe de factura/abono
+					case
+						when vef.[Document Type] = 2 then ((vef.[Invoiced Quantity] * -1) * slil.[Unit Price] * (1- (slil.[Line Discount %])/100))	-- Calculo Importe lin fra
+						else ((vef.[Invoiced Quantity] * -1) * slcrml.[Unit Price] * (1- (slcrml.[Line Discount %])/100))		-- Calculo importe lin abo
+					end
+				else	-- No esta facturado
+				case
+					-- Tratamos importe de linea albaran
+					when slsla.[Document No_] is not null then ((slsla.Quantity * sla.[Unit Price] * (1- (sla.[Line Discount %])/100) /
+																(case 
+																	when slsha.[Prices Including VAT] = 1 then (1 + (slsla.[VAT %]/100)) 
+																	else 1 
+																end)))
+					-- implica qeu no hay albaran y debe ser rec dev
+					else (((rtrld.Quantity * -1) * sld.[Unit Price] * (1- (sld.[Line Discount %])/100)/ 
+											(case 
+												when rtrhd.[Prices Including VAT] = 1 then (1 + (rtrld.[VAT %]/100)) 
+												else 1 
+											end)))
+				end 
+			end) as "Importe Venta",
+			-- Importe de coste UPC (Unificado para Generico y no Gen)
+			isnull(case
+					-- Coste reg VE factura
+						when vef.[Document No_] is not null then convert(float,(vef.[Importe Coste UPC] * -1))
+						-- Coste de reg VE albaran
+						else convert(float,(vea.[Importe Coste UPC] *-1))
+			end,0) as "Importe Coste UPC",
+			'' as "Fecha UPC Albaran", '' as "Fecha UPC Factura",
+			-- Upc del movimiento. Albaran o factura ó 0
+			convert(float,case
+				when vea.[Document No_] is not null then isnull(vea.UPC,0)
+				else 
+					case
+						when vef.[Document No_] is not null then isnull(vef.UPC,0)
+						else 0
+					end
+			end) as "UPC Movimiento",
+			-- Cantidad Recepcionada con dest Ped Vta
+			convert(float,case
+				when slsla.No_ is not null then isnull(pdr.Cantidad,0)
+				else 0
+			end) as "Cantidad Recep Destino",
+			case isnull(pdt.Destination,'') 
+				when '' then 'No Destino' 
+				else 'En Destino' 
+			end as "En Destino",
+			-- Clasificacion ABC ficha articulo
+			isnull(itd.[ABC Classification],'') as "ABC Ficha Articulo",
+			-- Forma de pago
+			case
+				when slih.No_ is not null then slih.[Payment Terms Code]	-- cab factura
+				else
+					case
+						when slcrmh.No_ is not null then slcrmh.[Payment Terms Code]	-- cab abono
+						else
+							case 
+								when sha.No_ is not null then sha.[Payment Terms Code]	-- cab pedido
+								else shd.[Payment Terms Code]		-- Cab devolucion
+							end
+						end
+			end as "Forma de Pago",
+			-- Metodo pago
+			case
+				when slih.No_ is not null then slih.[Payment Method Code]	-- cab factura
+				else
+					case
+						when slcrmh.No_ is not null then slcrmh.[Payment Method Code]	-- cab abono
+						else
+							case 
+								when sha.No_ is not null then sha.[Payment Method Code]	-- cab pedido
+								else shd.[Payment Method Code]		-- Cab devolucion
+							end
+						end
+			end as "Metodo de Pago"
+			
+			from TIC_Farell.dbo.TCD_FARELL$ILE as ilev with (nolock)
+			left join TIC_Farell.dbo.TCD_FARELL$VE as vef with (nolock) on vef.[Item Ledger Entry No_] = ilev.[Entry No_]
+															and vef.[Document Type] in (2,4)	-- VE 2-Fra / 4-Abo 
+															and vef.[Entry Type] = 0	-- Coste directo
+															and vef.Adjustment = 0		-- no es movajuste
+															and vef.[Source Code] = 'VENTAS'
+			
+			left join TIC_Farell.dbo.TCD_FARELL$VE as vea with (nolock) on vea.[Item Ledger Entry No_] = ilev.[Entry No_]
+														and vea.[Document Type] in (1,3)	-- VE 1-alb / 3-Rec Dev 
+														and vea.[Entry Type] = 0	-- Coste directo
+														and vea.Adjustment = 0		-- no es movajuste
+														and vea.[Source Code] = 'VENTAS'
+			-- Albaranes  - Pedidos - Facturas
+			left join TIC_Farell.dbo.TCD_FARELL$SLSH as slsha with (nolock) on slsha.No_ = ilev.[Document No_]
+			left join TIC_Farell.dbo.TCD_FARELL$SLSL as slsla with (nolock) on slsla.[Document No_] = ilev.[Document No_] and slsla.[Line No_] = ilev.[Document Line No_]
+			left join TIC_Farell.dbo.TCD_FARELL$SH as sha with (nolock) on sha.No_ = slsla.[Order No_] and sha.[Document Type] = 1
+			left join TIC_Farell.dbo.TCD_FARELL$SL as sla with (nolock) on sla.[Document No_] = slsla.[Order No_] and sla.[Line No_] = slsla.[Order Line No_] and sla.[Document Type] = 1
+			left join TIC_Farell.dbo.TCD_FARELL$SLIH as slih with (nolock) on slih.No_ = vef.[Document No_] 
+			left join TIC_Farell.dbo.TCD_FARELL$SLIL as slil with (nolock) on slil.[Document No_] = vef.[Document No_] and slil.[Line No_] = vef.[Document Line No_]
+			-- Añadido para sacar cantidad recepcionada con destino ped venta en destinos ped compra
+			left join (select pd.Destination, pd.[Sales Order Line No_], convert(float,sum(pd.Quantity)) as Cantidad
+						from TIC_Farell.dbo.TCD_FARELL$PD as pd with (nolock)
+						join TIC_Farell.dbo.TCD_FARELL$PWSRH as pwrh with (nolock) on pwrh.No_ = pd.[Document No_]
+						where pd.[Document Type] = 2
+						and pd.[Sales Order Line No_] <> 0
+						and pwrh.[Posting Date] <= @fec_fin
+						group by pd.Destination, pd.[Sales Order Line No_]) as pdr on pdr.Destination = sla.[Document No_] and pdr.[Sales Order Line No_] = sla.[Line No_] and sla.[Document Type] = 1
+			-- para sacar si la linea de PV está en destino ped compra
+			-- AG-02 añadir left join a cab pedidos para sacar proveedor, añadir al group by
+			left join (select pdl.Destination, pdl.[Sales Order Line No_], phl.[Buy-from Vendor No_] as "Proveedor venta"
+								from TIC_Farell.dbo.TCD_FARELL$PD as pdl with (nolock)
+								left join TIC_Farell.dbo.TCD_FARELL$PH as phl on phl.No_ = pdl.[Document No_] and phl.[Document Type] = 1
+								where pdl.[Document Type] = 0
+								and pdl.[Destination Type] = 1
+								and pdl.[Sales Order Line No_] <> 0
+								group by pdl.Destination, pdl.[Sales Order Line No_],phl.[Buy-from Vendor No_]) as pdt on pdt.Destination = sla.[Document No_] and pdt.[Sales Order Line No_] = sla.[Line No_] and sla.[Document Type] = 1
+			-- AG-02 Sacar Proveedor en recepcion con destino pedido-linea venta
+			left join (select pdhr.Destination as "Pedido venta", pdhr.[Sales Order Line No_] as "Linea pedido venta", max(htcagp.[Proveedor compra]) as "Proveedor compra"
+						from TIC_Farell.dbo.TCD_FARELL$PD as pdhr with (nolock)
+						join (select hrcag.*, prhp.[Buy-from Vendor No_] as "Proveedor compra"
+								from (select pwsrl.No_ as "Recep Registrada", pwsrl.[Posted Source No_] as "Albaran compra"		-- Ref recep registrada y albaran compra
+										from TIC_Farell.dbo.TCD_FARELL$PWSRL as pwsrl with (nolock)
+										where pwsrl.[Posted Source Document] = 1	-- Recepcion Registrada
+										group by pwsrl.No_, pwsrl.[Posted Source No_]) as hrcag
+								join TIC_Farell.dbo.TCD_FARELL$PRH as prhp with (nolock) on prhp.No_ = hrcag.[Albaran compra]
+							) as htcagp on htcagp.[Recep Registrada] = pdhr.[Document No_]
+						where pdhr.[Document Type] = 2		-- Recep registrada
+						and pdhr.[Destination Type] = 1		-- pedido
+						and pdhr.[Sales Order Line No_] <> 0
+						-- agrupar para evira duplicaddos
+						group by pdhr.Destination, pdhr.[Sales Order Line No_]
+						) as prdes on prdes.[Pedido venta] = sla.[Document No_] and prdes.[Linea pedido venta] = sla.[Line No_]			
+			-- Rec Dev - Devoluciones - Abonos
+			left join TIC_Farell.dbo.TCD_FARELL$RTRH as rtrhd with (nolock) on rtrhd.No_ = ilev.[Document No_]
+			left join TIC_Farell.dbo.TCD_FARELL$RTRL as rtrld with (nolock) on rtrld.[Document No_] = ilev.[Document No_] and rtrld.[Line No_] = ilev.[Document Line No_]
+			left join TIC_Farell.dbo.TCD_FARELL$SH as shd with (nolock) on shd.No_ = rtrld.[Return Order No_] and shd.[Document Type] = 5
+			left join TIC_Farell.dbo.TCD_FARELL$SL as sld with (nolock) on sld.[Document No_] = rtrld.[Return Order No_] and sld.[Line No_] = rtrld.[Return Order Line No_] and sld.[Document Type] = 5
+			left join TIC_Farell.dbo.TCD_FARELL$SLCRMH as slcrmh with (nolock) on slcrmh.No_ = vef.[Document No_] 
+			left join TIC_Farell.dbo.TCD_FARELL$SLCRML as slcrml with (nolock) on slcrml.[Document No_] = vef.[Document No_] and slcrml.[Line No_] = vef.[Document Line No_]
+			--
+			left join FARELL$Item as itd with (nolock)on itd.No_ = ilev.[Item No_]
+			-- Control id documento con linea minima
+			left join(select ilecbd.[Document No_] as "N Docum",MIN(ilecbd.[Document Line No_]) as "N Lin Docum Min"
+						from TIC_Farell.dbo.TCD_FARELL$ILE as ilecbd with (nolock)
+						left join TIC_Farell.dbo.TCD_FARELL$SLSL as slslcbd with (nolock) on slslcbd.[Document No_] = ilecbd.[Document No_] and slslcbd.[Line No_] = ilecbd.[Document Line No_]
+						left join TIC_Farell.dbo.TCD_FARELL$RTRL as rtrlcbd with (nolock) on rtrlcbd.[Document No_] = ilecbd.[Document No_] and rtrlcbd.[Line No_] = ilecbd.[Document Line No_]
+						where ilecbd.[Posting Date] between @fec_ini and @fec_fin
+						and ilecbd.[Entry Type] = 1		-- 1-Ventas
+						and ilecbd.[Document Type] in (1,3) 	--  3-Rec dev,  1-Alb venta,
+						and ilecbd.Correction = 0
+						and isnull(slslcbd.Correction,0) = 0	-- lineas no correccion alb
+						and ISNULL(rtrlcbd.Correction,0) = 0	-- lineas no correccion rec dev
+						group by ilecbd.[Document No_]) as docag on docag.[N Docum] = ilev.[Document No_] and docag.[N Lin Docum Min] = ilev.[Document Line No_]	
+			
+			-- AG-20 comentar selec semanas y poner fechas
+			--where DATEPART(WEEK,ilev.[Posting Date]) between @Sem_ini and @Sem_fin
+			--and DATEPART(YEAR,ilev.[Posting Date]) between @Ano_ini and @Ano_fin
+			where ilev.[Posting Date] between @fec_ini and @fec_fin
+			and ilev.[Entry Type] = 1		-- 1-Ventas
+			and ilev.[Document Type] in (1,3) 	--  3-Rec dev,  1-Alb venta,
+			and ilev.Correction = 0
+			and isnull(slsla.Correction,0) = 0	-- lineas no correccion alb
+			and ISNULL(rtrld.Correction,0) = 0	-- lineas no correccion rec dev
+
+			) as docvt1
+
+		-- Direccion envio clientes
+		left join [FARELL$Ship-to Address] as staf with (nolock) on staf.[Customer No_] = docvt1.[Sell-to Customer No_] and staf.Code = docvt1.[Dir Env_Obra1]
+		) as docvtd
+
+	left join dbo.V_Clien_Obra_Vend_Asig_NAV as cova on cova.Cliente = docvtd.[Sell-to Customer No_] and cova.Obra = docvtd.[Dir Env_Obra]
+	) as docvta
+
+
+-- enlaces a tablas complemenarias
+left join FARELL$Customer as cu with (nolock) on cu.No_ = docvta.[Sell-to Customer No_]
+--left join [FARELL$Ship-to Address] as sta on sta.[Customer No_] = docvta.[Sell-to Customer No_] and sta.Code = docvta.[Dir Env_Obra] 
+-- vendedores
+left join FARELL$Salesperson_Purchaser as spa with (nolock) on spa.Code = docvta.[Vendedor Asignado Docum]
+left join FARELL$Salesperson_Purchaser as spv with (nolock) on spv.Code = docvta.[Vendedor Venta]
+-- AG-12
+left join FARELL$Salesperson_Purchaser as spfi with (nolock) on spfi.Code = docvta.[Vendedor Asignado Ficha]
+-- AG-12 fin
+
+-- AG-11
+-- datos Vendedores agregados
+left join FARELL$Salesperson_Purchaser as spaga with (nolock) on spaga.Code = spa.[Vendedor Agregacion]	-- Agregado Asignado
+left join FARELL$Salesperson_Purchaser as spagv with (nolock) on spagv.Code = spv.[Vendedor Agregacion]	-- Agregado VeNTA
+left join [TIC_Farell].dbo.V_Vendedor_Dept_Centro as spcta with (nolock)on spcta.Cod_Vendedor = spa.[Vendedor Agregacion]	-- Centro Ven asig
+left join [TIC_Farell].dbo.V_Vendedor_Dept_Centro as spctv with (nolock) on spctv.Cod_Vendedor = spv.[Vendedor Agregacion]	-- centro ven Venta
+-- AG-11 fin
+left join [TIC_Farell].dbo.V_Vendedor_Dept_Centro as spct with (nolock) on spct.Cod_Vendedor = docvta.[Vendedor Venta]
+left join [TIC_Farell].dbo.V_Vendedor_Dept_Centro as spact with (nolock) on spact.Cod_Vendedor = docvta.[Vendedor Asignado Docum]
+-- AG-12
+left join [TIC_Farell].dbo.V_Vendedor_Dept_Centro as spfict with (nolock) on spfict.Cod_Vendedor = docvta.[Vendedor Asignado Ficha]
+
+left join FARELL$Vendor as vd with (nolock) on vd.No_ = docvta.Proveedor
+-- almacen documento
+left join FARELL$Location as lc with (nolock)on lc.Code = docvta.[Location Code]
+-- Motivo de devolucion
+left join [FARELL$Return Reason] as rtr with (nolock) on rtr.Code = docvta.[Motivo Devolucion]
+-- Familia / Subfamilia
+left join [FARELL$Item Category] as ict on ict.Code = docvta.Familia
+left join [FARELL$Product Group] as pgr on pgr.[Item Category Code] = docvta.Familia and pgr.Code = docvta.SubFamilia
+-- registrio de clasificacion
+left join [Classification register] as cr on cr.[Item no_] = docvta.[Item No_] and cr.Code = @grupo_clasif and cr.[Type] = 0 
+
+order by docvta.[Tipo Documento], docvta.[Document No_],docvta.[Document Line No_]
